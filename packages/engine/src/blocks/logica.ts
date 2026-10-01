@@ -2,7 +2,8 @@ import { z } from 'zod';
 import { getPath, type PortDef } from '@motor-fiscal/shared';
 import { evalExpression } from '../expr';
 import { fix } from '../money';
-import { BlockError, defineBlock } from '../types';
+import { valorOperacao } from '../fiscal/rules';
+import { BlockError, defineBlock, type ItemNormalizado } from '../types';
 
 // ---------------------------------------------------------------------------
 // Expressão
@@ -15,12 +16,14 @@ export const logicExpressao = defineBlock({
   category: 'logica',
   description:
     'Avalia uma fórmula simples com as entradas a, b e c (aritmética decimal exata, sem código livre). ' +
+    'Ligando o item, ficam disponíveis vProd, vFrete, vSeg, vOutro, vDesc, vOperacao, quantidade e valorUnitario. ' +
     'Funções: min, max, abs, round(x, casas), pct(base, %).',
   formula: 'resultado = expressao(a, b, c)',
   inputs: [
     { id: 'a', label: 'a', type: 'decimal', required: false },
     { id: 'b', label: 'b', type: 'decimal', required: false },
     { id: 'c', label: 'c', type: 'decimal', required: false },
+    { id: 'item', label: 'Item (vProd, vOperacao...)', type: 'item', required: false },
   ],
   outputs: [{ id: 'resultado', label: 'Resultado', type: 'decimal', required: true }],
   params: z.object({
@@ -28,8 +31,17 @@ export const logicExpressao = defineBlock({
     casas: z.number().int().min(0).max(10).default(2),
   }),
   run: ({ inputs, params }) => {
+    // variáveis: a, b, c (ausentes valem 0) e, com o item ligado, os valores dele
+    const vars: Record<string, unknown> = { a: inputs.a, b: inputs.b, c: inputs.c };
+    const it = inputs.item as ItemNormalizado | undefined;
+    if (it) {
+      Object.assign(vars, {
+        vProd: it.vProd, vFrete: it.vFrete, vSeg: it.vSeg, vOutro: it.vOutro, vDesc: it.vDesc,
+        vOperacao: valorOperacao(it).toFixed(2), quantidade: it.quantidade, valorUnitario: it.valorUnitario,
+      });
+    }
     try {
-      return { resultado: fix(evalExpression(params.expressao, inputs), params.casas) };
+      return { resultado: fix(evalExpression(params.expressao, vars), params.casas) };
     } catch (e) {
       throw new BlockError(`Fórmula inválida: ${(e as Error).message}`, 'EXPRESSAO_INVALIDA');
     }

@@ -479,6 +479,13 @@ describe('blocos de lógica', () => {
     expect(r.trace.find((t) => t.nodeId === 'u')!.status).toBe('skipped');
   });
 
+  it('a fórmula enxerga os valores do item quando ele é ligado', async () => {
+    const r = await out('logic.expressao', { item: item() }, { expressao: 'max(pct(vOperacao, 1.5), 20)' });
+    expect(r.resultado).toBe('20.00'); // 1.050 × 1,5% = 15,75 → vale o mínimo
+    const r2 = await out('logic.expressao', { item: item() }, { expressao: 'pct(vOperacao, 1.5) + a' });
+    expect(r2.resultado).toBe('15.75'); // "a" sem ligação vale 0
+  });
+
   it('avaliador de fórmulas usa decimais exatos', () => {
     expect(evalExpression('0.1 + 0.2', {}).toFixed()).toBe('0.3');
     expect(evalExpression('round(base * (1 - reducao / 100), 2)', { base: '1050', reducao: 50 }).toFixed()).toBe('525');

@@ -49,14 +49,85 @@ na tela **Execuções**.
 | Loja Simples ME (MG) | Simples Nacional | `calcular-nota-loja-simples` | alíquota efetiva, CSOSN 101 e crédito de ICMS |
 | Indústria Liminar S/A (PR) | Lucro Real | `calcular-nota-industria` | **override**: liminar com redução de 50% na base do ICMS |
 
-## Como funciona
+## Documentação
+
+| Documento | Conteúdo |
+|---|---|
+| [docs/ARQUITETURA.md](docs/ARQUITETURA.md) | Como o sistema funciona por dentro: módulos, contratos, execução, banco, API, frontend |
+| [docs/GUIA-FLUXOS.md](docs/GUIA-FLUXOS.md) | Montar um fluxo de cálculo na interface (do fluxo mínimo a ramificações, subfluxos e override) |
+| [docs/NOVO-IMPOSTO.md](docs/NOVO-IMPOSTO.md) | Criar um imposto novo: tabela, override, fórmula/código no fluxo ou bloco nativo em TypeScript |
+| [docs/FORMULAS.md](docs/FORMULAS.md) | Definir fórmulas e código; formatos de dados; contas fiscais implementadas |
+| [docs/TESTES.md](docs/TESTES.md) | Testar pela interface, por `curl`, no motor e na API; diagnóstico de erros |
+
+## Como funciona (visão técnica)
+
+O caminho de uma chamada de webhook:
 
 ```
-apps/api        NestJS: API admin (/api/*), receptor de webhooks (/webhook/:slug), sandbox de código, seed
-apps/web        React + Vite + Tailwind v4 + Radix + React Flow + Motion
-packages/shared Schemas Zod, tipos de porta, DSL do payload do webhook, validadores BR (CNPJ alfanumérico etc.)
-packages/engine Motor de execução do grafo + blocos fiscais/financeiros (TypeScript puro, sem Nest)
+Sistema X ─POST /webhook/:slug─▶ API (NestJS)
+   1. acha o webhook, confere o token        4. carrega empresa, tabelas e overrides (PostgreSQL)
+   2. valida o payload (DSL → Zod)           5. executa a versão publicada do fluxo no motor
+   3. reserva a execução (idempotência)      6. monta a resposta pelo template e grava execução + trace
 ```
+
+### Estrutura do repositório
+
+```
+motor-fiscal/
+├─ apps/
+│  ├─ api/                    Backend NestJS + Prisma
+│  │  ├─ prisma/                schema.prisma e migrations
+│  │  ├─ src/webhooks/          cadastro de webhooks e receptor público /webhook/:slug
+│  │  ├─ src/flows/             fluxos: rascunho, validar, publicar (versões imutáveis), teste a seco
+│  │  ├─ src/overrides/         overrides por empresa + teste padrão × override
+│  │  ├─ src/reference/         tabelas de referência com vigência
+│  │  ├─ src/executions/        execuções e trace
+│  │  ├─ src/tenants/           empresas
+│  │  ├─ src/catalog/           catálogo de blocos exposto à UI
+│  │  ├─ src/engine/            EngineService (monta o contexto do motor) e sandbox.ts (isolated-vm)
+│  │  ├─ src/seed/              dados de demonstração
+│  │  └─ test/                  testes e2e
+│  └─ web/                    Frontend React
+│     └─ src/
+│        ├─ features/editor/     editor de fluxos (React Flow): canvas, paleta, painel do nó
+│        ├─ features/webhooks/   construtor visual do schema do payload
+│        ├─ pages/               uma página por tela (fluxos, webhooks, overrides, execuções, blocos, tabelas, empresas)
+│        ├─ components/          UI (Radix + Tailwind), árvore de trace, editor de código (Monaco)
+│        └─ lib/                 cliente HTTP, queries, empresa atual, utilitários
+├─ packages/
+│  ├─ shared/                 Contratos usados por front e back
+│  └─ engine/                 Motor de execução e blocos (TypeScript puro)
+├─ docs/                      Documentação
+├─ examples/pedido.json       Payload de exemplo
+└─ docker-compose.yml         postgres + api + web
+```
+
+### Módulos
+
+**`packages/shared` — contratos.** Tipos de porta e a matriz de compatibilidade; o formato do grafo; a DSL que
+descreve o payload de um webhook (e sua conversão para Zod); o renderizador do template de resposta; o pedido
+canônico; os schemas de entrada da API (os mesmos validam os formulários do front); validadores brasileiros
+(CNPJ numérico e alfanumérico, CPF, NCM, CFOP, chave de acesso). É importado por todos os outros pacotes.
+
+**`packages/engine` — o motor.** TypeScript puro, sem Nest nem banco. O `executor` ordena o grafo, monta as
+entradas de cada bloco a partir das arestas, valida entradas e saídas pelo tipo das portas, resolve overrides por
+vigência, executa subfluxos e registra o trace. Os blocos ficam em `blocks/` (contexto, impostos, Simples e
+reforma, lógica, nota e financeiro), as regras fiscais reutilizáveis em `fiscal/rules.ts`, as tabelas de
+referência com vigência em `tables.ts`, e os adapters mock de SEFAZ, boleto e numeração em `fiscal/gateways.ts`.
+Para criar um bloco novo basta `defineBlock(...)` e registrá-lo em `registry.ts`
+(veja [docs/NOVO-IMPOSTO.md](docs/NOVO-IMPOSTO.md)).
+
+**`apps/api` — backend.** Cada pasta de `src/` é um módulo Nest (controller + service). O
+`webhooks.module.ts` implementa o pipeline do webhook (token, validação, idempotência, execução, template). O
+`EngineService` carrega do banco a empresa, as tabelas (globais + da empresa) e os overrides ativos e monta o
+`EngineContext`. O `sandbox.ts` executa o código dos overrides num isolate do V8. Fluxos publicados viram
+`FlowVersion` imutável, com os subfluxos embutidos.
+
+**`apps/web` — frontend.** SPA React. A paleta do editor e os formulários de parâmetros são **gerados do
+catálogo** que a API devolve (`GET /api/blocks`), então um bloco novo no motor aparece na tela sem mudar o front.
+A empresa escolhida no topo é enviada em todas as chamadas (`X-Tenant-Id`).
+
+### Conceitos
 
 - **Fluxo** = grafo de blocos. O publicado vira uma versão **imutável** com os subfluxos embutidos.
 - **Bloco** = `entradas → saídas`, com parâmetros. A saída de cada bloco é validada pelo tipo da porta, então um
@@ -101,7 +172,7 @@ O `isolated-vm` exige `--no-node-snapshot` no Node 20+ (os scripts de `start` e 
 
 ```bash
 pnpm typecheck
-pnpm test      # shared (18) · engine (42) · api e2e (29, exige o Postgres do compose)
+pnpm test      # shared (18) · engine (43) · api e2e (29, exige o Postgres do compose)
 ```
 
 Os testes do motor trazem casos calculados à mão (ICMS 18% sobre 1.050 = 189,00; PIS 5,60; COFINS 25,83;

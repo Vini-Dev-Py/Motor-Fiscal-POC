@@ -66,9 +66,10 @@ export function portCompatible(from: PortDef | undefined, to: PortDef | undefine
 
 /** Gera um id legível e único (aparece nos caminhos do template: nodes.<id>.<porta>). */
 export function uniqueNodeId(blockKey: string, label: string | undefined, existing: string[]): string {
+  const raw = (label ?? blockKey.split('.').pop() ?? 'bloco').normalize('NFD').replace(/[̀-ͯ]/g, '');
+  // "ICMS" → icms · "Totalizar nota" → totalizarNota · "Impostos do item" → impostosDoItem
   const base =
-    (label ?? blockKey.split('.').pop() ?? 'bloco')
-      .normalize('NFD').replace(/[̀-ͯ]/g, '')
+    (/^[A-Z0-9 \-/]+$/.test(raw) ? raw.toLowerCase() : raw)
       .replace(/[^a-zA-Z0-9]+(.)?/g, (_, c: string | undefined) => (c ? c.toUpperCase() : ''))
       .replace(/^./, (c) => c.toLowerCase()) || 'bloco';
   if (!existing.includes(base)) return base;
