@@ -1,0 +1,9 @@
+**/node_modules
+**/dist
+**/.vite
+.git
+.kombai
+docs
+examples
+*.log
+apps/api/.env

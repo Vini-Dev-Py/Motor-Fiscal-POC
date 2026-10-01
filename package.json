@@ -1,0 +1,17 @@
+{
+  "name": "motor-fiscal",
+  "private": true,
+  "version": "0.1.0",
+  "description": "POC de motor fiscal/financeiro baseado em fluxos de blocos (estilo n8n)",
+  "packageManager": "pnpm@10.12.1",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "build:libs": "pnpm --filter @motor-fiscal/shared build && pnpm --filter @motor-fiscal/engine build",
+    "build": "pnpm build:libs && pnpm --filter @motor-fiscal/api build && pnpm --filter @motor-fiscal/web build",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r --workspace-concurrency=1 test",
+    "dev:api": "pnpm --filter @motor-fiscal/api start:dev",
+    "dev:web": "pnpm --filter @motor-fiscal/web dev",
+    "db:up": "docker compose up -d postgres"
+  }
+}

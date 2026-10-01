@@ -1,0 +1,169 @@
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "debian-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Regime {
+  SIMPLES
+  PRESUMIDO
+  REAL
+}
+
+enum FlowKind {
+  PEDIDO
+  SUBFLUXO
+}
+
+enum ExecStatus {
+  EXECUTANDO
+  OK
+  ERRO
+  REJEITADA
+}
+
+/// Empresa (tenant). Não há login na POC: o tenant vem do header X-Tenant-Id.
+model Tenant {
+  id               String   @id @default(uuid())
+  cnpj             String   @unique
+  razaoSocial      String
+  ie               String?
+  uf               String   @db.Char(2)
+  codMunicipio     String
+  regime           Regime
+  crt              Int
+  /// Receita bruta dos últimos 12 meses (Simples Nacional)
+  rbt12            Decimal? @db.Decimal(15, 2)
+  config           Json     @default("{}")
+  /// Numeração sequencial da NF-e (série 1). Incrementada de forma atômica.
+  nfeProximoNumero Int      @default(1)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  overrides  BlockOverride[]
+  flows      Flow[]
+  webhooks   WebhookEndpoint[]
+  executions Execution[]
+  refRows    ReferenceRow[]
+}
+
+/// Substitui um bloco padrão por parâmetros e/ou código da empresa (benefício fiscal, liminar...).
+model BlockOverride {
+  id         String   @id @default(uuid())
+  tenantId   String
+  tenant     Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  blockKey   String
+  name       String
+  code       String?  @db.Text
+  params     Json     @default("{}")
+  /// AAAA-MM-DD
+  validFrom  String
+  validTo    String?
+  legalBasis String?
+  active     Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([tenantId, blockKey])
+}
+
+model Flow {
+  id          String   @id @default(uuid())
+  tenantId    String
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name        String
+  kind        FlowKind @default(PEDIDO)
+  description String?
+  draftGraph  Json     @default("{\"nodes\":[],\"edges\":[]}")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  versions   FlowVersion[]
+  webhooks   WebhookEndpoint[]
+  executions Execution[]
+
+  @@index([tenantId, kind])
+}
+
+/// Versão publicada (imutável). O grafo leva os subfluxos embutidos: cada versão é autocontida.
+model FlowVersion {
+  id          String   @id @default(uuid())
+  flowId      String
+  flow        Flow     @relation(fields: [flowId], references: [id], onDelete: Cascade)
+  version     Int
+  graph       Json
+  publishedAt DateTime @default(now())
+
+  executions Execution[]
+
+  @@unique([flowId, version])
+}
+
+model WebhookEndpoint {
+  id               String   @id @default(uuid())
+  tenantId         String
+  tenant           Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name             String
+  /// Único globalmente: a URL pública é /webhook/<slug>
+  slug             String   @unique
+  description      String?
+  flowId           String
+  flow             Flow     @relation(fields: [flowId], references: [id])
+  /// DSL JSON convertida em Zod na hora da requisição
+  requestSchema    Json
+  responseTemplate Json
+  token            String?
+  active           Boolean  @default(true)
+  config           Json     @default("{}")
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  executions Execution[]
+
+  @@index([tenantId])
+}
+
+model Execution {
+  id             String          @id @default(uuid())
+  tenantId       String
+  tenant         Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  webhookId      String?
+  webhook        WebhookEndpoint? @relation(fields: [webhookId], references: [id], onDelete: SetNull)
+  flowId         String?
+  flow           Flow?           @relation(fields: [flowId], references: [id], onDelete: SetNull)
+  flowVersionId  String?
+  flowVersion    FlowVersion?    @relation(fields: [flowVersionId], references: [id], onDelete: SetNull)
+  idempotencyKey String?
+  status         ExecStatus
+  input          Json
+  output         Json?
+  trace          Json            @default("[]")
+  error          Json?
+  durationMs     Int             @default(0)
+  httpStatus     Int?
+  createdAt      DateTime        @default(now())
+
+  @@unique([webhookId, idempotencyKey])
+  @@index([tenantId, createdAt])
+}
+
+/// Tabelas de referência com vigência. tenantId nulo = linha global.
+model ReferenceRow {
+  id        String   @id @default(uuid())
+  tenantId  String?
+  tenant    Tenant?  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  table     String
+  keys      Json     @default("{}")
+  value     Json
+  validFrom String
+  validTo   String?
+  note      String?
+  createdAt DateTime @default(now())
+
+  @@index([table])
+  @@index([tenantId])
+}

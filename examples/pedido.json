@@ -1,0 +1,31 @@
+{
+  "id": "PED-1001",
+  "dataEmissao": "2026-09-30",
+  "naturezaOperacao": "Venda de mercadoria",
+  "destinatario": {
+    "nome": "Mercado Bom Preço Ltda",
+    "documento": "11222333000181",
+    "uf": "SP",
+    "codMunicipio": "3550308",
+    "ie": "110042490114",
+    "indIEDest": 1,
+    "consumidorFinal": false
+  },
+  "itens": [
+    {
+      "codigo": "CAM-001",
+      "descricao": "Camiseta algodão",
+      "ncm": "61091000",
+      "origem": 0,
+      "unidade": "UN",
+      "quantidade": 10,
+      "valorUnitario": 100,
+      "frete": 50
+    }
+  ],
+  "pagamento": {
+    "condicao": "30/60/90",
+    "primeiroVencimento": "2026-10-30",
+    "meio": "15"
+  }
+}

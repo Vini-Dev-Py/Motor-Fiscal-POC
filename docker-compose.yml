@@ -1,0 +1,47 @@
+name: motor-fiscal
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: motor
+      POSTGRES_PASSWORD: motor
+      POSTGRES_DB: motor_fiscal
+    ports:
+      - '5433:5432'
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U motor -d motor_fiscal']
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://motor:motor@postgres:5432/motor_fiscal?schema=public
+      PORT: 3000
+      SEED_ON_START: 'true'
+    ports:
+      - '3000:3000'
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      - api
+    ports:
+      - '8080:80'
+
+volumes:
+  pgdata:
